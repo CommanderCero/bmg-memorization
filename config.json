@@ -1,0 +1,23 @@
+{
+	"reward_decay": 0.99,
+	"seed": 0,
+	"train_steps": 5000,
+	"log_frequency": 200,
+	"batch_size": 128,
+	"experiment_name": "RecurrentA2C Test",
+	"log_folder": "./logs",
+	"actor_critic": {
+		"embedding_size": 4,
+		"actor": {
+			"input_layers": [36, 32],
+			"lstm_size": 32,
+			"output_layers": [32, 64, 4]
+		},
+		"critic": {
+			"input_layers": [36, 32],
+			"lstm_size": 32,
+			"output_layers": [32, 64, 1]
+		}
+	}
+	
+}

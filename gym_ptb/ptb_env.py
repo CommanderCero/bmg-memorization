@@ -23,10 +23,6 @@ BUTTON_CHAR = b'B'
 
 BUTTON_SYMBOLS = "BRYGP"
 TILE_SYMBOLS = "brygp"
-ALL_SYMBOLS = f"{BUTTON_SYMBOLS}{TILE_SYMBOLS}{EMPTY_CHAR}{WALL_CHAR}"
-
-def _parse_map(map_string: str) -> Tuple[np.ndarray, Tuple[int, int]]:
-    return (None, None)
 
 class PressTheButtonEnv(gym.Env):
     def __init__(self, gridworld, view_range=1):
@@ -124,5 +120,3 @@ class PressTheButtonEnv(gym.Env):
         y_slice = slice(self._agent_y - self.view_range, self._agent_y + self.view_range + 1)
         x_slice = slice(self._agent_x - self.view_range, self._agent_x + self.view_range + 1)
         return self._gridworld[y_slice, x_slice].view('uint8')
-    
-env = PressTheButtonEnv('easy')

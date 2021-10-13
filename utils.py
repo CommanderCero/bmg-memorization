@@ -53,7 +53,7 @@ class TrajectoryBuffer:
         
         self.trajectory_start = self.pos
             
-    def get_data(self):
+    def get_data(self, device=torch.device('cpu')):
         sl = slice(0, self.pos)
         data = dict(
             observations=self.observations[sl],
@@ -63,7 +63,7 @@ class TrajectoryBuffer:
             dones=self.dones[sl]
         )
         
-        return {key : torch.from_numpy(value) for key, value in data.items()}
+        return {key : torch.from_numpy(value).to(device) for key, value in data.items()}
             
     def clear(self):
         self.pos = 0

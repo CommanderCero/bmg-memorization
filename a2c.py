@@ -135,8 +135,7 @@ class PTBActorCritic(nn.Module):
         embedded_X = self.embedding(X.long()).reshape(X.shape[0], -1)
         actor_logits = self.actor_body(embedded_X)
         values = self.critic_body(embedded_X)
-        return torch.distributions.Categorical(logits=actor_logits), values
-    
+        return torch.distributions.Categorical(logits=actor_logits), values 
     
     @torch.no_grad()
     def get_values(self, X: torch.Tensor) -> torch.Tensor:
