@@ -44,6 +44,7 @@ def train(actor_critic, env_fn: Callable[[], gym.Env],
         log_probs = []
         entropy = []
         buffer.clear()
+        actor_critic.reset()
         for _ in range(env_steps):
             # Advance environment
             inp = torch.as_tensor(state, dtype=torch.float32).to(device)
@@ -65,7 +66,8 @@ def train(actor_critic, env_fn: Callable[[], gym.Env],
                 episode_lengths.append(0)
                 episode_returns.append(0)
                 
-                # Reset agents hidden state
+                # Reset episode
+                buffer.end_trajectory()
                 state = env.reset()
                 actor_critic.reset()
         # Bootstrap the value for the last visited state
@@ -95,8 +97,6 @@ def train(actor_critic, env_fn: Callable[[], gym.Env],
         loss.backward(retain_graph=True)
         torch.nn.utils.clip_grad_norm_(actor_critic.parameters(), max_gradient_norm)
         optimizer.step()
-        
-        actor_critic.reset()
         
         ### Logging
         if step % save_frequency == 0 or step == train_steps - 1:
@@ -131,78 +131,64 @@ def train(actor_critic, env_fn: Callable[[], gym.Env],
             
             # Advance log_step
             log_step += 1
-
-class SequentialLstm(nn.Module):
-    def __init__(self, inp_layers, lstm_size, out_layers, learn_h=False, learn_c=False):
-        super().__init__()
-        
-        self.inp_net = utils.create_feedforward(inp_layers)
-        self.out_net = utils.create_feedforward(out_layers)
-        
-        self.hx, self.hc = (None, None)
-        self.initial_h = torch.zeros((1, lstm_size,), requires_grad=learn_h)
-        self.initial_c = torch.zeros((1, lstm_size,), requires_grad=learn_c)
-        self.lstm = nn.LSTMCell(inp_layers[-1], lstm_size)
     
-    def forward(self, X):
-        if self.hx is None:
-            self.hx = self.initial_h
-            self.hc = self.initial_c
-        
-        out = self.inp_net(X)
-        (self.hx, self.cx) = self.lstm(out, (self.hx, self.hc))
-        out = self.out_net(self.hx)
-        return out
-    
-    def reset(self):
-        self.hx = self.initial_h
-        self.cx = self.initial_c
-    
-    @classmethod
-    def from_config(cls, json_config):
-        return cls(
-            json_config["input_layers"],
-            json_config["lstm_size"],
-            json_config["output_layers"],
-            learn_h=json_config.get("learn_h", False),
-            learn_c=json_config.get("learn_c", False))
-        
 class PtbRecurrentActorCritic(nn.Module):
-    def __init__(self, embedding_size, actor: nn.Module, critic: nn.Module):
+    def __init__(self, embedding_size, input_layers, lstm_size, actor_layers, critic_layers):
         super().__init__()
         
+        self.lstm_size = lstm_size
         self.embedding = nn.Embedding(256, embedding_size)
-        self.actor = actor
-        self.critic = critic
+        self.input_net = utils.create_feedforward(input_layers)
+        self.lstm = nn.LSTMCell(input_layers[-1], lstm_size)
+        self.actor_body = utils.create_feedforward(actor_layers)
+        self.critic_body = utils.create_feedforward(critic_layers)
+        
+        self.reset()
         
     def forward(self, X):
-        embedded_X = self.embedding(X.long()).reshape(X.shape[0], -1)
-        actor_logits = self.actor(embedded_X)
-        values = self.critic(embedded_X)
+        states = self._compute_latent_state(X)
+        actor_logits = self.actor_body(states)
+        values = self.critic_body(states)
         return torch.distributions.Categorical(logits=actor_logits), values
     
     @torch.no_grad()
     def get_values(self, X):
-        embedded_X = self.embedding(X.long()).reshape(X.shape[0], -1)
-        values = self.critic(embedded_X)
+        states = self._compute_latent_state(X)
+        values = self.critic_body(states)
         return values.cpu().numpy()
     
     @torch.no_grad()
     def get_actions(self, X):
-        embedded_X = self.embedding(X.long()).reshape(X.shape[0], -1)
-        actor_logits = self.actor(embedded_X)
+        states = self._compute_latent_state(X)
+        actor_logits = self.actor_body(states)
         dist = torch.distributions.Categorical(logits=actor_logits)
         return dist.sample().cpu().numpy()
     
     def reset(self):
-        self.actor.reset()
-        self.critic.reset()
+        self.cx = None
+        self.hx = None
+        
+    def _compute_latent_state(self, X):
+        if self.hx is None:
+            self.hx = torch.zeros((X.shape[0], self.lstm_size))
+            self.cx = torch.zeros((X.shape[0], self.lstm_size))
+        
+        out = self.embedding(X.long()).reshape(X.shape[0], -1)
+        out = self.input_net(out)
+        (self.hx, self.cx) = self.lstm(out, (self.hx, self.cx))
+        return self.hx
     
     @classmethod
     def from_config(cls, json_config):
-        actor = SequentialLstm.from_config(json_config["actor"])
-        critic = SequentialLstm.from_config(json_config["critic"])
-        return cls(json_config["embedding_size"], actor, critic)
+        args = {
+            "embedding_size": json_config["embedding_size"],
+            "input_layers": json_config["input_layers"],
+            "lstm_size": json_config["lstm_size"],
+            "actor_layers": json_config["actor_layers"],
+            "critic_layers": json_config["critic_layers"]
+        }
+        
+        return cls(**args)
         
 
 if __name__ == "__main__":
@@ -234,7 +220,7 @@ if __name__ == "__main__":
     log_folder = os.path.join(config["log_folder"], full_experiment_name)
     print(f"Log Folder '{log_folder}'")
     Path(log_folder).mkdir(parents=True, exist_ok=True)
-    wandb.init(name=full_experiment_name, project='RL-Algorithms', dir=log_folder)
+    wandb.init(name=full_experiment_name, project='RL-Algorithms', dir=log_folder, mode="disabled")
     
     # Train
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
